@@ -1,0 +1,9 @@
+{
+  "name": "lot-size-calculator-pwa",
+  "version": "1.0.0",
+  "description": "Multi-account lot size and risk calculator Progressive Web App for iPhone and mobile",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  }
+}

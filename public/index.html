@@ -1,0 +1,2026 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>TradeCalc - Multi-Account Lot Size & Risk Calculator</title>
+  
+  <!-- Cache Control Meta Tags to prevent stale Safari cache -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+
+  <!-- iOS Meta Tags for PWA & Home Screen -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="TradeCalc">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  
+  <!-- Standard PWA Manifest & Icons -->
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+  <meta name="theme-color" content="#111318">
+
+  <script>
+    // Clear any warmup flags from previous cold starts so browser never loops
+    try {
+      sessionStorage.removeItem("warmup_start_time");
+      sessionStorage.removeItem("warmup_last_reload_time");
+      sessionStorage.removeItem("warmup_failed_sent");
+    } catch (_) {}
+
+    // Offline PWA Service Worker Registration with automatic update check
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('/sw.js').then(function(reg) {
+          console.log('TradeCalc Service Worker registered:', reg.scope);
+          if (reg.update) {
+            reg.update();
+          }
+        }).catch(function(err) {
+          console.warn('SW registration skipped:', err);
+        });
+      });
+    }
+  </script>
+
+  <style>
+    /* PWA & Safari / Chrome Installation UI */
+    .pwa-banner {
+      background: linear-gradient(90deg, #182234, #121926);
+      border-bottom: 1px solid #2e3a50;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 13px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .pwa-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(52, 211, 153, 0.15);
+      color: #34D399;
+      font-weight: 700;
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      border: 1px solid rgba(52, 211, 153, 0.3);
+      white-space: nowrap;
+    }
+    .pwa-btn {
+      background: #34D399;
+      color: #064e3b;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 12px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.2s;
+    }
+    .pwa-btn:hover {
+      background: #6ee7b7;
+    }
+    .pwa-close {
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 16px;
+      cursor: pointer;
+      padding: 4px;
+    }
+
+    :root {
+      --bg-dark: #111318;
+      --surface: #1D2024;
+      --surface-highlight: #24272C;
+      --card: #2D2F33;
+      --border: #33353A;
+      --border-subtle: #24272C;
+      --border-strong: #3E4148;
+      --accent-blue: #D1E4FF;
+      --accent-blue-on: #00325B;
+      --accent-green: #34D399;
+      --accent-gold: #FBBF24;
+      --text-primary: #E2E2E6;
+      --text-secondary: #9FA3AA;
+      --text-muted: #686C73;
+      --danger: #F87171;
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    input, button, select, textarea {
+      user-select: text;
+      touch-action: manipulation;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", -apple-system, Roboto, Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+      padding-top: var(--safe-top);
+      padding-bottom: calc(var(--safe-bottom) + 76px);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Top Navigation Bar */
+    header.top-bar {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      background: rgba(17, 19, 24, 0.94);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      padding: 12px 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-logo-badge {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #1C2333, #00325B);
+      border: 1px solid var(--accent-blue);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent-blue);
+      font-weight: 900;
+      font-size: 15px;
+    }
+
+    .brand-title {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .version-tag {
+      background: rgba(52, 211, 153, 0.18);
+      color: var(--accent-green);
+      font-size: 10px;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
+    }
+
+    .brand-subtitle {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      color: var(--accent-blue);
+      margin-top: 1px;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .icon-btn {
+      height: 36px;
+      border-radius: 50px;
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      color: var(--text-primary);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 0 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      touch-action: manipulation;
+      transition: all 0.15s ease;
+    }
+
+    .icon-btn:active {
+      transform: scale(0.95);
+      background: var(--surface-highlight);
+    }
+
+    /* Main Content Layout */
+    main.main-content {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding: 14px 16px 24px;
+      max-width: 600px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    .left-pane, .right-pane {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* Horizontal Account Switcher */
+    .account-switcher-wrapper {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 4px 0 8px;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+    .account-switcher-wrapper::-webkit-scrollbar {
+      display: none;
+    }
+
+    .account-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 16px;
+      border-radius: 50px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+      cursor: pointer;
+      touch-action: manipulation;
+      transition: all 0.15s ease;
+      font-family: inherit;
+      -webkit-appearance: none;
+    }
+
+    .account-pill:active {
+      transform: scale(0.96);
+    }
+
+    .account-pill.active {
+      background: var(--accent-blue);
+      border-color: var(--accent-blue);
+      color: var(--accent-blue-on);
+      font-weight: 800;
+      box-shadow: 0 2px 10px rgba(209, 228, 255, 0.25);
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .dot.micro { background: #60A5FA; }
+    .dot.prop { background: var(--accent-gold); }
+    .dot.standard { background: var(--accent-green); }
+
+    /* Cards */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 18px 20px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+    }
+
+    .ref-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .tag {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 4px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .tag.micro { background: rgba(96, 165, 250, 0.18); color: #93C5FD; }
+    .tag.prop { background: rgba(251, 191, 36, 0.18); color: #FCD34D; }
+    .tag.standard { background: rgba(52, 211, 153, 0.18); color: #6EE7B7; }
+
+    .card-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .small-action-btn {
+      background: var(--surface-highlight);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      touch-action: manipulation;
+    }
+    .small-action-btn:active {
+      background: var(--border-strong);
+      transform: scale(0.95);
+    }
+
+    .ref-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      background: var(--card);
+      border-radius: 14px;
+      padding: 12px 14px;
+      font-size: 12px;
+    }
+
+    .ref-item-label {
+      color: var(--text-secondary);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .ref-item-value {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      color: var(--text-primary);
+      font-weight: 700;
+      font-size: 14px;
+      margin-top: 2px;
+    }
+
+    /* Inputs Section */
+    .inputs-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .input-card {
+      background: var(--surface);
+      border: 1.5px solid var(--accent-blue);
+      border-radius: 20px;
+      padding: 16px 18px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    }
+    .input-card.sl-card {
+      border-color: var(--border-strong);
+    }
+
+    .input-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 12px;
+    }
+
+    .input-title {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      color: var(--accent-blue);
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .input-current-val {
+      font-size: 24px;
+      font-weight: 800;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      color: var(--text-primary);
+    }
+
+    .stepper-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .step-btn {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      background: var(--surface-highlight);
+      border: 1px solid var(--border-strong);
+      color: var(--accent-blue);
+      font-size: 22px;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      touch-action: manipulation;
+      transition: transform 0.1s;
+      -webkit-appearance: none;
+    }
+    .step-btn:active { transform: scale(0.92); background: var(--border-strong); }
+
+    .custom-input {
+      flex: 1;
+      height: 48px;
+      border-radius: 14px;
+      background: var(--card);
+      border: 1px solid var(--border-strong);
+      color: #FFFFFF;
+      font-size: 20px;
+      font-weight: 800;
+      text-align: center;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      outline: none;
+      -webkit-appearance: none;
+    }
+    .custom-input:focus {
+      border-color: var(--accent-blue);
+      box-shadow: 0 0 0 2px rgba(209, 228, 255, 0.25);
+    }
+
+    .chips-row {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      padding-top: 2px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .chips-row::-webkit-scrollbar { display: none; }
+
+    .preset-chip {
+      padding: 7px 13px;
+      border-radius: 8px;
+      background: var(--surface-highlight);
+      border: 1px solid var(--border-strong);
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      touch-action: manipulation;
+      transition: all 0.1s;
+      -webkit-appearance: none;
+    }
+    .preset-chip.active {
+      background: var(--accent-blue);
+      border-color: var(--accent-blue);
+      color: var(--accent-blue-on);
+      font-weight: 800;
+    }
+    .preset-chip:active { transform: scale(0.94); }
+
+    /* Hero Lot Size Card */
+    .hero-result-card {
+      background: var(--card);
+      border: 1px solid var(--border-strong);
+      border-radius: 30px;
+      padding: 24px 20px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+
+    .hero-label {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .hero-account-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--accent-blue);
+      margin-bottom: 4px;
+    }
+
+    .hero-lot-number {
+      font-size: 64px;
+      line-height: 1.05;
+      font-weight: 900;
+      letter-spacing: -1.5px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      color: var(--accent-blue);
+      margin: 8px 0 14px;
+      text-shadow: 0 2px 24px rgba(209, 228, 255, 0.3);
+      transition: color 0.15s ease;
+    }
+
+    .total-risk-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 16px;
+      border-radius: 50px;
+      background: var(--surface-highlight);
+      border: 1px solid var(--border);
+      font-size: 13px;
+      color: var(--accent-blue);
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+
+    .total-risk-pill span.val {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      font-weight: 800;
+      color: #FFFFFF;
+    }
+
+    .hero-divider {
+      height: 1px;
+      background: var(--border);
+      margin: 6px 0 16px;
+    }
+
+    .hero-metrics-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      text-align: left;
+    }
+
+    .metric-col {
+      display: flex;
+      flex-direction: column;
+    }
+    .metric-col .metric-label {
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--text-secondary);
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+    }
+    .metric-col .metric-val {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-top: 2px;
+    }
+
+    .copy-hero-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 9px 18px;
+      border-radius: 50px;
+      background: var(--surface-highlight);
+      border: 1px solid var(--border-strong);
+      color: var(--accent-blue);
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+      touch-action: manipulation;
+      transition: all 0.2s ease;
+      -webkit-appearance: none;
+    }
+
+    .copy-hero-btn:active {
+      transform: scale(0.94);
+    }
+
+    .copy-hero-btn.copied {
+      background: var(--accent-green);
+      border-color: var(--accent-green);
+      color: #003822;
+    }
+
+    /* Live Multi-Account Table */
+    .desktop-compare-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 18px 20px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+    }
+
+    .table-header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .live-compare-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .live-compare-table th {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      text-align: left;
+      padding: 8px 6px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .live-compare-table th:last-child {
+      text-align: right;
+    }
+
+    .live-compare-table td {
+      font-size: 13px;
+      padding: 12px 6px;
+      border-bottom: 1px solid var(--border-subtle);
+      vertical-align: middle;
+    }
+
+    .live-compare-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .live-compare-table tr.active-row td {
+      background: rgba(209, 228, 255, 0.06);
+      font-weight: 700;
+    }
+
+    /* Formula Reference Card */
+    .formula-guide-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 16px 18px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+    .formula-guide-card .guide-title {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      color: var(--accent-blue);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    /* Bottom Navigation Bar (Mobile only) */
+    nav.bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 40;
+      background: rgba(29, 32, 36, 0.96);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-top: 1px solid var(--border);
+      padding: 8px 24px calc(var(--safe-bottom) + 8px);
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+    }
+
+    .nav-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: 50px;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      touch-action: manipulation;
+      transition: all 0.15s ease;
+      -webkit-appearance: none;
+      background: transparent;
+      border: none;
+    }
+
+    .nav-pill.active {
+      background: var(--surface-highlight);
+      color: var(--accent-blue);
+      font-weight: 700;
+    }
+
+    /* Modal Dialog */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-overlay.open { display: flex; }
+
+    .modal-card {
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: 28px;
+      padding: 24px;
+      width: 100%;
+      max-width: 480px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+
+    .modal-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .form-group {
+      margin-bottom: 14px;
+    }
+    .form-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-secondary);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      display: block;
+    }
+    .form-input {
+      width: 100%;
+      height: 44px;
+      border-radius: 12px;
+      background: var(--surface-highlight);
+      border: 1px solid var(--border-strong);
+      color: var(--text-primary);
+      padding: 0 14px;
+      font-size: 15px;
+      outline: none;
+      font-family: inherit;
+      -webkit-appearance: none;
+    }
+    .form-input:focus {
+      border-color: var(--accent-blue);
+    }
+
+    .form-row {
+      display: flex;
+      gap: 12px;
+    }
+    .form-row .form-group {
+      flex: 1;
+    }
+
+    .preview-box {
+      background: var(--surface-highlight);
+      border: 1px solid var(--border-strong);
+      border-radius: 14px;
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .btn {
+      padding: 10px 20px;
+      border-radius: 50px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      touch-action: manipulation;
+      transition: all 0.15s ease;
+      -webkit-appearance: none;
+    }
+    .btn-secondary {
+      background: transparent;
+      border: 1px solid var(--border-strong);
+      color: var(--text-secondary);
+    }
+    .btn-primary {
+      background: var(--accent-blue);
+      color: var(--accent-blue-on);
+    }
+    .btn:active { transform: scale(0.96); }
+
+    /* Bottom Sheet for Comparison */
+    .sheet-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      display: none;
+      align-items: flex-end;
+    }
+    .sheet-overlay.open { display: flex; }
+
+    .sheet-card {
+      background: var(--surface);
+      border-top: 1px solid var(--border-strong);
+      border-radius: 28px 28px 0 0;
+      padding: 20px 20px calc(var(--safe-bottom) + 24px);
+      width: 100%;
+      max-height: 85vh;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .compare-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .compare-item {
+      background: var(--surface-highlight);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 14px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+    .compare-item.selected {
+      border-color: var(--accent-blue);
+      background: rgba(209, 228, 255, 0.08);
+    }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: calc(var(--safe-bottom) + 80px);
+      left: 50%;
+      transform: translateX(-50%) translateY(30px);
+      background: #2D2F33;
+      border: 1px solid var(--accent-green);
+      color: #FFFFFF;
+      padding: 10px 20px;
+      border-radius: 50px;
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      z-index: 60;
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* Responsive Desktop Grid Layout */
+    @media (min-width: 860px) {
+      body {
+        padding-bottom: 24px;
+      }
+      nav.bottom-nav {
+        display: none;
+      }
+      main.main-content {
+        max-width: 1100px;
+        display: grid;
+        grid-template-columns: 1.15fr 1fr;
+        align-items: start;
+        gap: 20px;
+        padding: 24px;
+      }
+      .right-pane {
+        position: sticky;
+        top: 76px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Header Bar -->
+  <header class="top-bar">
+    <div class="brand-group">
+      <div class="brand-logo-badge">TC</div>
+      <div>
+        <div class="brand-title">
+          TradeCalc
+          <span class="version-tag">v4.0 Live</span>
+        </div>
+        <div class="brand-subtitle">LOT SIZE & RISK ENGINE</div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button type="button" class="icon-btn" onclick="openInstallModal()" title="Install Web App for Safari / Chrome" style="border-color: #34D399; color: #34D399; font-weight: 700;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Web App
+      </button>
+      <button type="button" class="icon-btn" onclick="forceCleanReset()" title="Reset All to Calibrated Defaults" style="border-color: var(--accent-blue); color: var(--accent-blue);">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+        Reset
+      </button>
+      <button type="button" class="icon-btn" id="btnCompare" onclick="openCompareSheet()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          <line x1="3" y1="9" x2="21" y2="9"></line>
+          <line x1="9" y1="21" x2="9" y2="9"></line>
+        </svg>
+        Compare
+      </button>
+      <button type="button" class="icon-btn" id="btnAddAccount" onclick="openNewAccountModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        Add
+      </button>
+    </div>
+  </header>
+
+  <!-- Persistent Web / Safari / Chrome Install Banner -->
+  <div id="pwaBanner" class="pwa-banner">
+    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+      <span class="pwa-badge">📱 Safari & Chrome Ready</span>
+      <span style="font-size: 12px; color: var(--text-primary);">
+        Add to Home Screen in Safari/Chrome to use 24/7 offline without server timeouts!
+      </span>
+    </div>
+    <div style="display: flex; gap: 8px; align-items: center;">
+      <button type="button" class="pwa-btn" onclick="openInstallModal()">How to Install</button>
+      <button type="button" class="pwa-close" onclick="dismissPwaBanner()">✕</button>
+    </div>
+  </div>
+
+
+  <!-- Main Application Body -->
+  <main class="main-content">
+
+    <!-- Left Pane: Accounts & Trade Inputs -->
+    <div class="left-pane">
+      <!-- 1. Account Selector Pills -->
+      <div class="account-switcher-wrapper" id="accountPillsContainer">
+        <!-- Rendered dynamically as native buttons -->
+      </div>
+
+      <!-- 2. Active Account Reference Card -->
+      <div class="card account-reference-card" id="accountRefCard">
+        <div class="ref-header">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-weight: 700; font-size: 15px;" id="refAccName">REAL-MICRO</span>
+            <span class="tag micro" id="refAccType">MICRO</span>
+          </div>
+          <div class="card-actions">
+            <button type="button" class="small-action-btn" onclick="openEditAccountModal()" title="Edit Account">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              Edit
+            </button>
+            <button type="button" class="small-action-btn" onclick="duplicateCurrentAccount()" title="Duplicate">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+            <button type="button" class="small-action-btn" id="btnDeleteAcc" onclick="deleteCurrentAccount()" title="Delete" style="color: var(--danger);">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="ref-grid">
+          <div>
+            <div class="ref-item-label">Amount / Drawdown</div>
+            <div class="ref-item-value" id="refAmountDd">$30 / 12</div>
+          </div>
+          <div>
+            <div class="ref-item-label">1% of Drawdown</div>
+            <div class="ref-item-value" style="color: var(--accent-blue);" id="refOnePercent">$2.50</div>
+          </div>
+          <div>
+            <div class="ref-item-label">Reference Calibration</div>
+            <div class="ref-item-value" id="refPointLot">1 pt / 0.1 lot</div>
+          </div>
+          <div>
+            <div class="ref-item-label">SL Calibration</div>
+            <div class="ref-item-value" id="refSl">0.1 pts</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Dynamic Trade Inputs -->
+      <div class="inputs-grid">
+        <!-- Risk % Card -->
+        <div class="input-card">
+          <div class="input-header">
+            <span class="input-title">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              Trade Risk %
+            </span>
+            <span class="input-current-val" id="dispRisk">3.00%</span>
+          </div>
+          <div class="stepper-row">
+            <button type="button" class="step-btn" onclick="stepRisk(-0.5)">−</button>
+            <input type="number" step="0.5" class="custom-input" id="inputRisk" value="3.0">
+            <button type="button" class="step-btn" onclick="stepRisk(0.5)">+</button>
+          </div>
+          <div class="chips-row" id="riskChipsRow">
+            <button type="button" class="preset-chip" onclick="setRisk(0.5)">0.5%</button>
+            <button type="button" class="preset-chip" onclick="setRisk(1.0)">1.0%</button>
+            <button type="button" class="preset-chip" onclick="setRisk(1.5)">1.5%</button>
+            <button type="button" class="preset-chip" onclick="setRisk(2.0)">2.0%</button>
+            <button type="button" class="preset-chip active" onclick="setRisk(3.0)">3.0%</button>
+            <button type="button" class="preset-chip" onclick="setRisk(5.0)">5.0%</button>
+          </div>
+        </div>
+
+        <!-- Stop Loss Points Card -->
+        <div class="input-card sl-card">
+          <div class="input-header">
+            <span class="input-title">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              Stop Loss (Points)
+            </span>
+            <span class="input-current-val" id="dispSl">10.0 pts</span>
+          </div>
+          <div class="stepper-row">
+            <button type="button" class="step-btn" onclick="stepSl(-1)">−</button>
+            <input type="number" step="1" class="custom-input" id="inputSl" value="10">
+            <button type="button" class="step-btn" onclick="stepSl(1)">+</button>
+          </div>
+          <div class="chips-row" id="slChipsRow">
+            <button type="button" class="preset-chip" onclick="setSl(5)">5</button>
+            <button type="button" class="preset-chip active" onclick="setSl(10)">10</button>
+            <button type="button" class="preset-chip" onclick="setSl(15)">15</button>
+            <button type="button" class="preset-chip" onclick="setSl(20)">20</button>
+            <button type="button" class="preset-chip" onclick="setSl(25)">25</button>
+            <button type="button" class="preset-chip" onclick="setSl(30)">30</button>
+            <button type="button" class="preset-chip" onclick="setSl(50)">50</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Pane: Hero Result & Multi-Account Table -->
+    <div class="right-pane">
+      <!-- 4. Hero Result Display Card -->
+      <div class="hero-result-card">
+        <div class="hero-label">CALCULATED LOT SIZE</div>
+        <div class="hero-account-badge" id="heroAccBadge">REAL-MICRO (3% Risk • 10 pts SL)</div>
+        <div class="hero-lot-number" id="heroLot">0.75</div>
+        
+        <div class="total-risk-pill">
+          <span>Total Risk:</span>
+          <span class="val" id="heroTotalRisk">$7.50</span>
+        </div>
+
+        <div class="hero-divider"></div>
+
+        <div class="hero-metrics-row">
+          <div class="metric-col">
+            <span class="metric-label">1% DRAWDOWN</span>
+            <span class="metric-val" id="heroOnePercent">$2.50</span>
+          </div>
+          <div class="metric-col">
+            <span class="metric-label">RISK / POINT</span>
+            <span class="metric-val" style="color: var(--accent-blue);" id="heroRiskPerPt">$0.75/pt</span>
+          </div>
+          <button type="button" class="copy-hero-btn" id="btnCopyLot" onclick="copyLotToClipboard()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="copyIcon"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <span id="copyText">Copy</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 5. Live Multi-Account Summary Table -->
+      <div class="desktop-compare-card">
+        <div class="table-header-row">
+          <div style="font-size: 13px; font-weight: 700;">Account Comparison</div>
+          <div style="font-size: 11px; color: var(--accent-blue);" id="quickCompareParams">3.00% Risk • 10 pts SL</div>
+        </div>
+        <table class="live-compare-table">
+          <thead>
+            <tr>
+              <th>Account</th>
+              <th>1% DD</th>
+              <th>Risk ($)</th>
+              <th>Lots (0.00)</th>
+            </tr>
+          </thead>
+          <tbody id="liveCompareTableBody">
+            <!-- Rendered by JS -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 6. Formula Reference Card -->
+      <div class="formula-guide-card">
+        <div class="guide-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          CALIBRATED FORMULA (IDENTICAL TO ANDROID)
+        </div>
+        <div>• <strong>1% of Drawdown</strong> = Amount / Total Drawdown</div>
+        <div>• <strong>Total Risk ($)</strong> = (1% of Drawdown) × (Risk %)</div>
+        <div>• <strong>Base Ratio</strong> = Total Risk / SL Points</div>
+        <div>• <strong>Final Lot Size</strong> = Base Ratio × [Lot Ref / (SL Ref × Point Ref)]</div>
+        <div style="margin-top: 6px; color: var(--accent-blue); line-height: 1.5;">
+          • <strong>REAL-MICRO:</strong> (7.50 / 10) × [0.1 / (0.1 × 1)] = <strong>0.75 lots</strong><br>
+          • <strong>PROP:</strong> (150.0 / 10) × [0.01 / (1 × 1)] = <strong>0.15 lots</strong>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Bottom Navigation (Mobile Only) -->
+  <nav class="bottom-nav">
+    <button type="button" class="nav-pill active" onclick="switchNav(0)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="16" y1="14" x2="16" y2="18"/><path d="M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M8 18h.01M12 18h.01"/></svg>
+      Calculator
+    </button>
+    <button type="button" class="nav-pill" onclick="switchNav(1)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+      Compare
+    </button>
+    <button type="button" class="nav-pill" onclick="switchNav(2)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Accounts
+    </button>
+  </nav>
+
+  <!-- Edit / Add Account Modal -->
+  <div class="modal-overlay" id="accountModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modalTitle">Edit Account Setup</h3>
+        <button type="button" class="small-action-btn" onclick="closeAccountModal()">✕</button>
+      </div>
+
+      <div style="margin-bottom: 14px;">
+        <span class="form-label">Quick Presets (Calibrated)</span>
+        <div class="chips-row">
+          <button type="button" class="preset-chip" onclick="applyPreset('micro')">Real Micro (30/12)</button>
+          <button type="button" class="preset-chip" onclick="applyPreset('prop')">Prop Firm (600/12)</button>
+          <button type="button" class="preset-chip" onclick="applyPreset('prop100k')">Prop 100k</button>
+          <button type="button" class="preset-chip" onclick="applyPreset('standard')">Real Standard</button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Account Name</label>
+        <input type="text" class="form-input" id="accNameInput" placeholder="e.g. REAL-MICRO">
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Amount Size</label>
+          <input type="number" step="1" class="form-input" id="accAmountInput" placeholder="30">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Total Drawdown</label>
+          <input type="number" step="0.5" class="form-input" id="accDdInput" placeholder="12">
+        </div>
+      </div>
+
+      <div class="preview-box">
+        <div>
+          <div style="font-size: 10px; font-weight: 700; color: var(--accent-blue);">1% OF DRAWDOWN (PREVIEW)</div>
+          <div style="font-size: 11px; color: var(--text-secondary);" id="previewCalcText">Amount (30) / DD (12)</div>
+        </div>
+        <div style="font-size: 18px; font-weight: 800; color: var(--accent-blue); font-family: monospace;" id="previewOnePercentVal">$2.50</div>
+      </div>
+
+      <div style="font-size: 11px; font-weight: 700; color: var(--text-secondary); letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 8px;">
+        REFERENCE CALIBRATION
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Point Ref</label>
+          <input type="number" step="0.1" class="form-input" id="accPtRefInput" value="1.0">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Lot Ref</label>
+          <input type="number" step="0.01" class="form-input" id="accLotRefInput" value="0.1">
+        </div>
+        <div class="form-group">
+          <label class="form-label">SL Ref</label>
+          <input type="number" step="0.1" class="form-input" id="accSlRefInput" value="0.1">
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeAccountModal()">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="saveAccountModal()">Save Account</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Install / Web Compatibility Modal -->
+  <div class="modal-overlay" id="installModal">
+    <div class="modal-card" style="max-width: 520px;">
+      <div class="modal-header">
+        <h3 class="modal-title" style="display: flex; align-items: center; gap: 8px;">
+          <span style="color: #34D399;">●</span> Web App for Safari & Chrome
+        </h3>
+        <button type="button" class="small-action-btn" onclick="closeInstallModal()">✕</button>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 16px; margin: 16px 0;">
+        <!-- iPhone / Safari Guide -->
+        <div style="background: var(--surface); border: 1px solid var(--accent-blue); border-radius: 10px; padding: 14px;">
+          <div style="font-weight: 700; color: #D1E4FF; font-size: 15px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+              <span>iPhone & iPad (Safari)</span>
+            </div>
+            <span style="background: rgba(56, 189, 248, 0.2); color: #38BDF8; font-size: 11px; padding: 2px 8px; border-radius: 12px; font-weight: 600;">Recommended for iOS</span>
+          </div>
+          <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.5;">
+            Apple iOS prevents opening downloaded HTML files in Safari directly. Instead, <strong>Add to Home Screen</strong> to run TradeCalc like a native iOS app with full offline capabilities:
+          </p>
+          <ol style="padding-left: 20px; font-size: 13px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 12px;">
+            <li>In Safari, tap the <strong>Share</strong> button (square with upward arrow <span style="font-size: 15px;">⎋</span> at bottom).</li>
+            <li>Scroll down and tap <strong>"Add to Home Screen"</strong> (plus icon <span style="font-size: 15px;">⊞</span>).</li>
+            <li>Tap <strong>"Add"</strong> in top-right corner.</li>
+            <li><strong style="color: #34D399;">Success:</strong> Opens fullscreen from your home screen, zero server delay, saves accounts, and works 100% offline!</li>
+          </ol>
+          <button type="button" class="btn btn-secondary" onclick="copyAppUrl()" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy Web App Link for Safari
+          </button>
+        </div>
+
+        <!-- Android / Chrome Guide -->
+        <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px;">
+          <div style="font-weight: 700; color: #D1E4FF; font-size: 15px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="21.17" y1="8" x2="12" y2="8"/><line x1="3.95" y1="6.06" x2="8.54" y2="14"/><line x1="10.88" y1="21.94" x2="15.46" y2="14"/></svg>
+            How to Install on Android / PC / Mac (Chrome)
+          </div>
+          <ol style="padding-left: 20px; font-size: 13px; color: var(--text-secondary); line-height: 1.6;">
+            <li>Tap the three dots (<strong>⋮</strong>) in the top-right corner of Chrome.</li>
+            <li>Tap <strong>"Install TradeCalc"</strong> or <strong>"Add to Home screen"</strong>.</li>
+          </ol>
+        </div>
+
+        <!-- Standalone Offline Download -->
+        <div style="background: rgba(52, 211, 153, 0.08); border: 1px solid rgba(52, 211, 153, 0.3); border-radius: 10px; padding: 14px;">
+          <div style="font-weight: 700; color: #34D399; font-size: 15px; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Direct Standalone Web File (.html)
+          </div>
+          <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; line-height: 1.5;">
+            Download the entire TradeCalc calculator as a single HTML file for <strong>PC, Mac, or Android</strong> (double-click to open anytime in Chrome, Edge, or Safari on Mac).
+          </p>
+          <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 6px; padding: 8px 10px; margin-bottom: 12px; font-size: 11px; color: #FCD34D; line-height: 1.4;">
+            <strong>iPhone/iPad Notice:</strong> iOS does not allow opening local HTML files in Safari. If on iPhone, please use the <strong>"Add to Home Screen"</strong> option above instead!
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button type="button" class="btn btn-primary" onclick="downloadStandaloneHtml()" style="background: #34D399; color: #064e3b; font-weight: 700;">
+              ⬇ Download tradecalc.html
+            </button>
+            <button type="button" class="btn btn-secondary" onclick="exportAccountsData()">
+              Export Accounts (JSON)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-primary" onclick="closeInstallModal()" style="width: 100%;">Got it!</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Multi-Account Comparison Bottom Sheet (Mobile) -->
+  <div class="sheet-overlay" id="compareSheet">
+    <div class="sheet-card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <div>
+          <h3 style="font-size: 18px; font-weight: 700;">Multi-Account Lot Sizes</h3>
+          <div style="font-size: 12px; color: var(--accent-blue);" id="compareSubheader">Risk: 3.00% | Stop Loss: 10 pts</div>
+        </div>
+        <button type="button" class="small-action-btn" onclick="closeCompareSheet()">✕</button>
+      </div>
+
+      <div class="compare-list" id="compareListContainer">
+        <!-- Rendered by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast">Lot size copied to clipboard!</div>
+
+  <script>
+    // --- 1. Calibrated Android Accounts ---
+    const DEFAULT_ACCOUNTS = [
+      {
+        id: 1,
+        name: "REAL-MICRO",
+        accountType: "MICRO",
+        currencySymbol: "$",
+        amount: 30.0,
+        totalDrawdown: 12.0,
+        pointReference: 1.0,
+        lotReference: 0.1,  // 0.1 lot per 0.1 SL = ratio 1.0
+        slReference: 0.1,
+        defaultRiskPercent: 3.0,
+        defaultSlPoints: 10.0
+      },
+      {
+        id: 2,
+        name: "PROP",
+        accountType: "PROP",
+        currencySymbol: "$",
+        amount: 600.0,
+        totalDrawdown: 12.0,
+        pointReference: 1.0,
+        lotReference: 0.01, // 0.01 lot per 1.0 SL = ratio 0.01
+        slReference: 1.0,
+        defaultRiskPercent: 3.0,
+        defaultSlPoints: 10.0
+      },
+      {
+        id: 3,
+        name: "PROP 2 (100k)",
+        accountType: "PROP",
+        currencySymbol: "$",
+        amount: 100000.0,
+        totalDrawdown: 10.0,
+        pointReference: 1.0,
+        lotReference: 0.01,
+        slReference: 1.0,
+        defaultRiskPercent: 1.0,
+        defaultSlPoints: 20.0
+      },
+      {
+        id: 4,
+        name: "REAL 1",
+        accountType: "STANDARD",
+        currencySymbol: "$",
+        amount: 1000.0,
+        totalDrawdown: 100.0,
+        pointReference: 1.0,
+        lotReference: 0.01,
+        slReference: 1.0,
+        defaultRiskPercent: 2.0,
+        defaultSlPoints: 15.0
+      }
+    ];
+
+    const CURRENT_VERSION = "4.0";
+    let accounts = [];
+    let selectedAccountId = 1;
+    let riskPercent = 3.0;
+    let slPoints = 10.0;
+    let editingAccountId = null;
+
+    function initData() {
+      try {
+        const storedVer = localStorage.getItem('tradecalc_v');
+
+        // If version is not 4.0, FORCE CLEAN PURGE of old broken cache:
+        if (storedVer !== CURRENT_VERSION) {
+          localStorage.clear();
+          accounts = JSON.parse(JSON.stringify(DEFAULT_ACCOUNTS));
+          selectedAccountId = 1;
+          riskPercent = 3.0;
+          slPoints = 10.0;
+          localStorage.setItem('tradecalc_v', CURRENT_VERSION);
+          saveAccountsToStorage();
+          return;
+        }
+
+        const saved = localStorage.getItem('tradecalc_accounts');
+        if (saved) {
+          accounts = JSON.parse(saved);
+        } else {
+          accounts = JSON.parse(JSON.stringify(DEFAULT_ACCOUNTS));
+        }
+
+        // Validate that REAL-MICRO or any micro account is never broken:
+        accounts.forEach(acc => {
+          const isMicro = (acc.accountType === 'MICRO') || (acc.name && acc.name.toLowerCase().includes('micro'));
+          if (isMicro) {
+            if (!acc.lotReference || acc.lotReference < 0.05 || !acc.slReference || acc.slReference > 0.5) {
+              acc.pointReference = 1.0;
+              acc.lotReference = 0.1;
+              acc.slReference = 0.1;
+              acc.amount = 30.0;
+              acc.totalDrawdown = 12.0;
+            }
+          }
+        });
+
+        const savedRisk = localStorage.getItem('tradecalc_risk');
+        riskPercent = savedRisk ? (parseFloat(savedRisk) || 3.0) : 3.0;
+
+        const savedSl = localStorage.getItem('tradecalc_sl');
+        slPoints = savedSl ? (parseFloat(savedSl) || 10.0) : 10.0;
+
+        const savedAccId = localStorage.getItem('tradecalc_selected_acc');
+        if (savedAccId && accounts.some(a => a.id == savedAccId)) {
+          selectedAccountId = parseInt(savedAccId);
+        } else if (accounts.length > 0) {
+          selectedAccountId = accounts[0].id;
+        }
+      } catch (e) {
+        accounts = JSON.parse(JSON.stringify(DEFAULT_ACCOUNTS));
+        selectedAccountId = 1;
+        riskPercent = 3.0;
+        slPoints = 10.0;
+      }
+    }
+
+    function saveAccountsToStorage() {
+      try {
+        localStorage.setItem('tradecalc_v', CURRENT_VERSION);
+        localStorage.setItem('tradecalc_accounts', JSON.stringify(accounts));
+        localStorage.setItem('tradecalc_risk', riskPercent.toString());
+        localStorage.setItem('tradecalc_sl', slPoints.toString());
+        localStorage.setItem('tradecalc_selected_acc', selectedAccountId.toString());
+      } catch (e) {}
+    }
+
+    function getCurrentAccount() {
+      return accounts.find(a => a.id === selectedAccountId) || accounts[0];
+    }
+
+    // --- 2. EXACT Android Calculation Engine ---
+    function calculateAccount(acc, risk, sl) {
+      if (!acc || acc.totalDrawdown <= 0) {
+        return { onePercentDrawdown: 0, totalRisk: 0, baseLotRatio: 0, lotSize: 0, riskPerPoint: 0, isValid: false };
+      }
+      // 1% of drawdown
+      const onePercent = acc.amount / acc.totalDrawdown;
+      // Total risk ($)
+      const totalRisk = onePercent * risk;
+      // Base ratio
+      const baseLotRatio = (sl > 0) ? (totalRisk / sl) : 0.0;
+
+      // Exact Android logic:
+      // denominator = slReference * pointReference
+      // lotSize = baseLotRatio * (lotReference / denominator)
+      const ptRef = (typeof acc.pointReference === 'number' && acc.pointReference > 0) ? acc.pointReference : 1.0;
+      const lotRef = (typeof acc.lotReference === 'number' && acc.lotReference > 0) ? acc.lotReference : 0.01;
+      const slRef = (typeof acc.slReference === 'number' && acc.slReference > 0) ? acc.slReference : 1.0;
+
+      const denominator = slRef * ptRef;
+      let lotSize = 0.0;
+      if (denominator > 0 && sl > 0) {
+        lotSize = baseLotRatio * (lotRef / denominator);
+      } else if (sl > 0) {
+        lotSize = baseLotRatio;
+      }
+      const riskPerPoint = (sl > 0) ? (totalRisk / sl) : 0.0;
+
+      return {
+        onePercentDrawdown: onePercent,
+        totalRisk: totalRisk,
+        baseLotRatio: baseLotRatio,
+        lotSize: lotSize,
+        riskPerPoint: riskPerPoint,
+        isValid: (sl > 0 && totalRisk > 0)
+      };
+    }
+
+    // --- 3. UI Render ---
+    function renderApp() {
+      const acc = getCurrentAccount();
+      if (!acc) return;
+
+      // 1. Account Pills
+      const pillsContainer = document.getElementById('accountPillsContainer');
+      pillsContainer.innerHTML = accounts.map(a => {
+        const isActive = a.id === selectedAccountId;
+        const typeClass = (a.accountType || 'standard').toLowerCase();
+        return `
+          <button type="button" class="account-pill ${isActive ? 'active' : ''}" onclick="selectAccount(${a.id})">
+            <span class="dot ${typeClass}"></span>
+            <span>${escapeHtml(a.name)}</span>
+          </button>
+        `;
+      }).join('');
+
+      // 2. Active Account Reference Card
+      document.getElementById('refAccName').textContent = acc.name;
+      const typeTag = document.getElementById('refAccType');
+      typeTag.textContent = acc.accountType.toUpperCase();
+      typeTag.className = `tag ${(acc.accountType || 'standard').toLowerCase()}`;
+      
+      const sym = acc.currencySymbol || '$';
+      document.getElementById('refAmountDd').textContent = `${sym}${formatCompact(acc.amount)} / ${acc.totalDrawdown}`;
+      const onePercentVal = acc.totalDrawdown > 0 ? (acc.amount / acc.totalDrawdown) : 0;
+      document.getElementById('refOnePercent').textContent = `${sym}${onePercentVal.toFixed(2)}`;
+      document.getElementById('refPointLot').textContent = `${acc.pointReference} pt / ${acc.lotReference} lot`;
+      document.getElementById('refSl').textContent = `${acc.slReference} pts`;
+
+      const deleteBtn = document.getElementById('btnDeleteAcc');
+      if (deleteBtn) {
+        deleteBtn.style.display = accounts.length > 1 ? 'inline-flex' : 'none';
+      }
+
+      // 3. Inputs Display
+      document.getElementById('dispRisk').textContent = `${riskPercent.toFixed(2)}%`;
+      document.getElementById('inputRisk').value = riskPercent;
+      document.getElementById('dispSl').textContent = `${slPoints} pts`;
+      document.getElementById('inputSl').value = slPoints;
+
+      // Update active chip classes
+      document.querySelectorAll('#riskChipsRow .preset-chip').forEach(c => {
+        const val = parseFloat(c.textContent);
+        c.classList.toggle('active', Math.abs(val - riskPercent) < 0.05);
+      });
+      document.querySelectorAll('#slChipsRow .preset-chip').forEach(c => {
+        const val = parseFloat(c.textContent);
+        c.classList.toggle('active', Math.abs(val - slPoints) < 0.1);
+      });
+
+      // 4. Calculations & Hero Card
+      const result = calculateAccount(acc, riskPercent, slPoints);
+      
+      // Formatted lot size
+      const formattedLot = result.isValid ? result.lotSize.toFixed(2) : "0.00";
+      document.getElementById('heroLot').textContent = formattedLot;
+      document.getElementById('heroAccBadge').textContent = `${acc.name} (${riskPercent.toFixed(2)}% Risk • ${slPoints} pts SL)`;
+      document.getElementById('heroTotalRisk').textContent = `${sym}${result.totalRisk.toFixed(2)}`;
+      document.getElementById('heroOnePercent').textContent = `${sym}${result.onePercentDrawdown.toFixed(2)}`;
+      document.getElementById('heroRiskPerPt').textContent = `${sym}${result.riskPerPoint.toFixed(2)}/pt`;
+
+      // 5. Live Multi-Account Summary Table
+      document.getElementById('quickCompareParams').textContent = `${riskPercent.toFixed(2)}% Risk • ${slPoints} pts SL`;
+      const tableBody = document.getElementById('liveCompareTableBody');
+      tableBody.innerHTML = accounts.map(a => {
+        const isSel = a.id === selectedAccountId;
+        const res = calculateAccount(a, riskPercent, slPoints);
+        const lot = res.isValid ? res.lotSize.toFixed(2) : "0.00";
+        const aSym = a.currencySymbol || '$';
+        const typeClass = (a.accountType || 'standard').toLowerCase();
+        return `
+          <tr class="${isSel ? 'active-row' : ''}" style="cursor: pointer;" onclick="selectAccount(${a.id})">
+            <td>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span class="dot ${typeClass}"></span>
+                <span>${escapeHtml(a.name)}</span>
+                ${isSel ? '<span style="font-size: 10px; color: var(--accent-blue);">●</span>' : ''}
+              </div>
+            </td>
+            <td style="font-family: monospace;">${aSym}${res.onePercentDrawdown.toFixed(2)}</td>
+            <td style="font-family: monospace;">${aSym}${res.totalRisk.toFixed(2)}</td>
+            <td style="text-align: right;">
+              <span style="font-family: monospace; font-size: 15px; font-weight: 800; color: var(--accent-blue);">${lot}</span>
+              <button type="button" class="small-action-btn" onclick="event.stopPropagation(); copyCustomLot('${lot}')" style="display: inline-flex; margin-left: 6px; padding: 4px 6px;">Copy</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      saveAccountsToStorage();
+    }
+
+    // --- 4. User Interaction Handlers ---
+    function selectAccount(id) {
+      selectedAccountId = id;
+      const acc = accounts.find(a => a.id === id);
+      if (acc && acc.defaultRiskPercent) {
+        riskPercent = acc.defaultRiskPercent;
+      }
+      if (acc && acc.defaultSlPoints) {
+        slPoints = acc.defaultSlPoints;
+      }
+      renderApp();
+    }
+
+    function stepRisk(delta) {
+      riskPercent = Math.max(0.1, Math.round((riskPercent + delta) * 10) / 10);
+      renderApp();
+    }
+
+    function setRisk(val) {
+      riskPercent = val;
+      renderApp();
+    }
+
+    function stepSl(delta) {
+      slPoints = Math.max(1, Math.round(slPoints + delta));
+      renderApp();
+    }
+
+    function setSl(val) {
+      slPoints = val;
+      renderApp();
+    }
+
+    // Manual input listeners
+    document.getElementById('inputRisk').addEventListener('input', (e) => {
+      const v = parseFloat(e.target.value);
+      if (!isNaN(v) && v > 0) {
+        riskPercent = v;
+        renderApp();
+      }
+    });
+
+    document.getElementById('inputSl').addEventListener('input', (e) => {
+      const v = parseFloat(e.target.value);
+      if (!isNaN(v) && v > 0) {
+        slPoints = v;
+        renderApp();
+      }
+    });
+
+    function copyLotToClipboard() {
+      const lot = document.getElementById('heroLot').textContent;
+      copyCustomLot(lot);
+    }
+
+    function copyCustomLot(lot) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(lot).then(() => {
+          if ('vibrate' in navigator) navigator.vibrate(25);
+          const btn = document.getElementById('btnCopyLot');
+          const text = document.getElementById('copyText');
+          if (btn && text) {
+            btn.classList.add('copied');
+            text.textContent = "Copied!";
+            setTimeout(() => {
+              btn.classList.remove('copied');
+              text.textContent = "Copy";
+            }, 1800);
+          }
+          showToast(`Lot size ${lot} copied!`);
+        }).catch(() => {
+          showToast(`Lot size: ${lot}`);
+        });
+      } else {
+        showToast(`Lot size: ${lot}`);
+      }
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2200);
+    }
+
+    // --- 5. Force Clean Reset ---
+    function forceCleanReset() {
+      localStorage.clear();
+      accounts = JSON.parse(JSON.stringify(DEFAULT_ACCOUNTS));
+      selectedAccountId = 1;
+      riskPercent = 3.0;
+      slPoints = 10.0;
+      saveAccountsToStorage();
+      renderApp();
+      showToast("Reset to Calibrated Defaults (v4.0)!");
+    }
+
+    // --- 6. Account Management Modals ---
+    function openNewAccountModal() {
+      editingAccountId = null;
+      document.getElementById('modalTitle').textContent = "New Account Setup";
+      document.getElementById('accNameInput').value = "";
+      document.getElementById('accAmountInput').value = "600";
+      document.getElementById('accDdInput').value = "12";
+      document.getElementById('accPtRefInput').value = "1.0";
+      document.getElementById('accLotRefInput').value = "0.01";
+      document.getElementById('accSlRefInput').value = "1.0";
+      updateModalPreview();
+      document.getElementById('accountModal').classList.add('open');
+    }
+
+    function openEditAccountModal() {
+      const acc = getCurrentAccount();
+      if (!acc) return;
+      editingAccountId = acc.id;
+      document.getElementById('modalTitle').textContent = "Edit Account Setup";
+      document.getElementById('accNameInput').value = acc.name;
+      document.getElementById('accAmountInput').value = acc.amount;
+      document.getElementById('accDdInput').value = acc.totalDrawdown;
+      document.getElementById('accPtRefInput').value = acc.pointReference;
+      document.getElementById('accLotRefInput').value = acc.lotReference;
+      document.getElementById('accSlRefInput').value = acc.slReference;
+      updateModalPreview();
+      document.getElementById('accountModal').classList.add('open');
+    }
+
+    function closeAccountModal() {
+      document.getElementById('accountModal').classList.remove('open');
+    }
+
+    function updateModalPreview() {
+      const amt = parseFloat(document.getElementById('accAmountInput').value) || 0;
+      const dd = parseFloat(document.getElementById('accDdInput').value) || 0;
+      const onePercent = dd > 0 ? (amt / dd) : 0;
+      document.getElementById('previewCalcText').textContent = `Amount (${amt}) / DD (${dd})`;
+      document.getElementById('previewOnePercentVal').textContent = `$${onePercent.toFixed(2)}`;
+    }
+
+    document.getElementById('accAmountInput').addEventListener('input', updateModalPreview);
+    document.getElementById('accDdInput').addEventListener('input', updateModalPreview);
+
+    function applyPreset(preset) {
+      if (preset === 'micro') {
+        document.getElementById('accNameInput').value = "REAL-MICRO";
+        document.getElementById('accAmountInput').value = "30";
+        document.getElementById('accDdInput').value = "12";
+        document.getElementById('accPtRefInput').value = "1.0";
+        document.getElementById('accLotRefInput').value = "0.1";
+        document.getElementById('accSlRefInput').value = "0.1";
+      } else if (preset === 'prop') {
+        document.getElementById('accNameInput').value = "PROP";
+        document.getElementById('accAmountInput').value = "600";
+        document.getElementById('accDdInput').value = "12";
+        document.getElementById('accPtRefInput').value = "1.0";
+        document.getElementById('accLotRefInput').value = "0.01";
+        document.getElementById('accSlRefInput').value = "1.0";
+      } else if (preset === 'prop100k') {
+        document.getElementById('accNameInput').value = "PROP 2 (100k)";
+        document.getElementById('accAmountInput').value = "100000";
+        document.getElementById('accDdInput').value = "10";
+        document.getElementById('accPtRefInput').value = "1.0";
+        document.getElementById('accLotRefInput').value = "0.01";
+        document.getElementById('accSlRefInput').value = "1.0";
+      } else if (preset === 'standard') {
+        document.getElementById('accNameInput').value = "REAL 1";
+        document.getElementById('accAmountInput').value = "1000";
+        document.getElementById('accDdInput').value = "100";
+        document.getElementById('accPtRefInput').value = "1.0";
+        document.getElementById('accLotRefInput').value = "0.01";
+        document.getElementById('accSlRefInput').value = "1.0";
+      }
+      updateModalPreview();
+    }
+
+    function saveAccountModal() {
+      const name = document.getElementById('accNameInput').value.trim() || "Account";
+      const amt = parseFloat(document.getElementById('accAmountInput').value) || 100;
+      const dd = parseFloat(document.getElementById('accDdInput').value) || 10;
+      const ptRef = parseFloat(document.getElementById('accPtRefInput').value) || 1.0;
+      const lotRef = parseFloat(document.getElementById('accLotRefInput').value) || 0.01;
+      const slRef = parseFloat(document.getElementById('accSlRefInput').value) || 1.0;
+
+      let type = "STANDARD";
+      const lName = name.toLowerCase();
+      if (lName.includes('micro') || amt <= 50) type = "MICRO";
+      else if (lName.includes('prop') || amt >= 500) type = "PROP";
+
+      if (editingAccountId) {
+        const idx = accounts.findIndex(a => a.id === editingAccountId);
+        if (idx >= 0) {
+          accounts[idx] = {
+            ...accounts[idx],
+            name,
+            amount: amt,
+            totalDrawdown: dd,
+            pointReference: ptRef,
+            lotReference: lotRef,
+            slReference: slRef,
+            accountType: type
+          };
+        }
+      } else {
+        const newId = Date.now();
+        accounts.push({
+          id: newId,
+          name,
+          accountType: type,
+          currencySymbol: "$",
+          amount: amt,
+          totalDrawdown: dd,
+          pointReference: ptRef,
+          lotReference: lotRef,
+          slReference: slRef,
+          defaultRiskPercent: 3.0,
+          defaultSlPoints: 10.0
+        });
+        selectedAccountId = newId;
+      }
+
+      closeAccountModal();
+      renderApp();
+      showToast("Account settings saved!");
+    }
+
+    function duplicateCurrentAccount() {
+      const acc = getCurrentAccount();
+      if (!acc) return;
+      const newId = Date.now();
+      accounts.push({
+        ...acc,
+        id: newId,
+        name: `${acc.name} (Copy)`
+      });
+      selectedAccountId = newId;
+      renderApp();
+      showToast("Account duplicated!");
+    }
+
+    function deleteCurrentAccount() {
+      if (accounts.length <= 1) {
+        alert("You must keep at least one account.");
+        return;
+      }
+      if (confirm(`Delete account "${getCurrentAccount().name}"?`)) {
+        accounts = accounts.filter(a => a.id !== selectedAccountId);
+        selectedAccountId = accounts[0].id;
+        renderApp();
+        showToast("Account deleted.");
+      }
+    }
+
+    // --- 7. Mobile Comparison Bottom Sheet ---
+    function openCompareSheet() {
+      document.getElementById('compareSubheader').textContent = `Risk: ${riskPercent.toFixed(2)}% | Stop Loss: ${slPoints} pts`;
+      const container = document.getElementById('compareListContainer');
+      container.innerHTML = accounts.map(a => {
+        const isSel = a.id === selectedAccountId;
+        const res = calculateAccount(a, riskPercent, slPoints);
+        const lot = res.isValid ? res.lotSize.toFixed(2) : "0.00";
+        const sym = a.currencySymbol || '$';
+        const typeClass = (a.accountType || 'standard').toLowerCase();
+        return `
+          <div class="compare-item ${isSel ? 'selected' : ''}" onclick="selectAccountAndCloseSheet(${a.id})">
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="dot ${typeClass}"></span>
+                <span style="font-weight: 700; font-size: 14px;">${escapeHtml(a.name)}</span>
+                ${isSel ? '<span style="font-size: 10px; color: var(--accent-blue); font-weight: 800;">ACTIVE</span>' : ''}
+              </div>
+              <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">
+                1% DD: ${sym}${res.onePercentDrawdown.toFixed(2)} • Risk: ${sym}${res.totalRisk.toFixed(2)}
+              </div>
+            </div>
+            <div style="text-align: right;">
+              <div style="font-size: 22px; font-weight: 800; font-family: monospace; color: var(--accent-blue);">${lot}</div>
+              <button type="button" class="small-action-btn" onclick="event.stopPropagation(); copyCustomLot('${lot}')" style="margin-left: auto; margin-top: 4px;">Copy</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+      document.getElementById('compareSheet').classList.add('open');
+    }
+
+    function closeCompareSheet() {
+      document.getElementById('compareSheet').classList.remove('open');
+    }
+
+    function selectAccountAndCloseSheet(id) {
+      selectAccount(id);
+      closeCompareSheet();
+    }
+
+    function switchNav(idx) {
+      document.querySelectorAll('.nav-pill').forEach((p, i) => {
+        p.classList.toggle('active', i === idx);
+      });
+      if (idx === 0) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else if (idx === 1) {
+        openCompareSheet();
+      } else if (idx === 2) {
+        openNewAccountModal();
+      }
+    }
+
+    // Helpers
+    function formatCompact(num) {
+      if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+      if (num >= 1000) return (num / 1000).toFixed(num % 1000 === 0 ? 0 : 1) + 'k';
+      return num.toString();
+    }
+
+    function escapeHtml(str) {
+      return (str || '').replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[m]));
+    }
+
+
+    // --- 8. Web App / Safari & Chrome Helpers ---
+    function openInstallModal() {
+      document.getElementById('installModal').classList.add('open');
+    }
+
+    function closeInstallModal() {
+      document.getElementById('installModal').classList.remove('open');
+    }
+
+    function dismissPwaBanner() {
+      document.getElementById('pwaBanner').style.display = 'none';
+      try { localStorage.setItem('tradecalc_dismiss_banner', '1'); } catch(e) {}
+    }
+
+    function checkBannerState() {
+      try {
+        if (localStorage.getItem('tradecalc_dismiss_banner') === '1') {
+          document.getElementById('pwaBanner').style.display = 'none';
+        }
+      } catch(e) {}
+    }
+
+    function downloadStandaloneHtml() {
+      try {
+        window.open('/download', '_blank');
+        showToast("Downloading tradecalc.html...");
+      } catch(e) {
+        // Fallback: create blob download
+        const blob = new Blob([document.documentElement.outerHTML], { type: 'text/html;charset=utf-8' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'tradecalc.html';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        showToast("Downloaded tradecalc.html");
+      }
+    }
+
+    function copyAppUrl() {
+      const url = window.location.href.split('?')[0];
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(() => {
+          showToast("Link copied! Open in Safari and Add to Home Screen.");
+        }).catch(() => {
+          prompt("Copy this URL to open in Safari:", url);
+        });
+      } else {
+        prompt("Copy this URL to open in Safari:", url);
+      }
+    }
+
+    function exportAccountsData() {
+      try {
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(accounts, null, 2));
+        const dl = document.createElement('a');
+        dl.setAttribute("href", dataStr);
+        dl.setAttribute("download", "tradecalc_accounts.json");
+        document.body.appendChild(dl);
+        dl.click();
+        dl.remove();
+        showToast("Accounts exported successfully!");
+      } catch(e) {
+        showToast("Export failed: " + e.message);
+      }
+    }
+
+    checkBannerState();
+    // Initialize on load
+    initData();
+    renderApp();
+  </script>
+</body>
+</html>

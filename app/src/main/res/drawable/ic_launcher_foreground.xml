@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Center Candlesticks & Calculator Glyph in 66dp Safe Area (21 to 87) -->
+    <!-- Candlestick 1: Bullish Green -->
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M37,34 L37,42 M37,62 L37,70"
+        android:strokeColor="#10B981"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M33,42 L41,42 A2,2 0 0,1 43,44 L43,60 A2,2 0 0,1 41,62 L33,62 A2,2 0 0,1 31,60 L31,44 A2,2 0 0,1 33,42 Z" />
+
+    <!-- Candlestick 2: Golden/Amber Center -->
+    <path
+        android:fillColor="#F59E0B"
+        android:pathData="M54,26 L54,34 M54,70 L54,78"
+        android:strokeColor="#F59E0B"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#FBBF24"
+        android:pathData="M50,34 L58,34 A2,2 0 0,1 60,36 L60,68 A2,2 0 0,1 58,70 L50,70 A2,2 0 0,1 48,68 L48,36 A2,2 0 0,1 50,34 Z" />
+
+    <!-- Candlestick 3: Accent Pip Indicator -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M71,40 L71,48 M71,64 L71,72"
+        android:strokeColor="#38BDF8"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M67,48 L75,48 A2,2 0 0,1 77,50 L77,62 A2,2 0 0,1 75,64 L67,64 A2,2 0 0,1 65,62 L65,50 A2,2 0 0,1 67,48 Z" />
+
+    <!-- Overlay Badge / Calculator Precision Icon -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M48,51 L60,51 M48,55 L60,55"
+        android:strokeColor="#1E293B"
+        android:strokeWidth="2"
+        android:strokeLineCap="round" />
+</vector>

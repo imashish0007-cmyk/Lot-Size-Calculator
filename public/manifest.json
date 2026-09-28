@@ -1,0 +1,24 @@
+{
+  "name": "TradeCalc - Lot Size Calculator",
+  "short_name": "TradeCalc",
+  "description": "Multi-account lot size and risk calculator for prop firms and real trading accounts.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111318",
+  "theme_color": "#111318",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
